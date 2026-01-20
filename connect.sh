@@ -1,0 +1,1 @@
+docker exec -it reasoning-tool-llm-agent bash
