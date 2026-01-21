@@ -1,42 +1,104 @@
 services:
-  reasoning-tool-llm-agent:
+  train-sft:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: reasoning-tool-llm-agent
-    image: reasoning-tool-llm-agent:latest
+    image: reasoning-tool-llm-agent-v2
 
-    # GPU support (using runtime for compatibility)
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
-    # Environment variables
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      # CUDA_VISIBLE_DEVICES will be set automatically by docker-entrypoint.sh
-      # based on GPU with highest available memory
-      - PYTHONUNBUFFERED=1
-      - HF_HOME=/app/.cache/huggingface
-      - TRANSFORMERS_CACHE=/app/.cache/huggingface
-      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda-12.8/lib64:/usr/lib/x86_64-linux-gnu
-
-    # Volume mounts
     volumes:
-      # Mount code directory for easy editing
-      - ./:/app
+      - ./rlm/weights:/app/rlm/weights
+      - ./hf_cache:/root/.cache/huggingface
 
-    # Working directory
+    environment:
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - HF_HOME=/root/.cache/huggingface
+
     working_dir: /app
+    command: ["python3", "rlm/train_sft.py"]
 
-    # Keep container running
-    stdin_open: true
-    tty: true
-    # ports:
-    #   - "8888:8888"
-    command: bash
-    # command: jupyter notebook --ip=0.0.0.0 --no-browser --allow-root
-    # Network mode (optional, can be removed if not needed)
-    network_mode: bridge
+  train-grpo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reasoning-tool-llm-agent-v2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./rlm/weights:/app/rlm/weights
+      - ./weights:/app/weights
+      - ./hf_cache:/root/.cache/huggingface
+    environment:
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/weights/final_rlm_lora
+      - HF_HOME=/root/.cache/huggingface
+    working_dir: /app
+    command: ["python3", "rlm/train_grpo.py"]
 
-    # Restart policy
-    restart: unless-stopped
+  inference-rlm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reasoning-tool-llm-agent-v2
+    ports:
+      - "8002:8000"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    volumes:
+      - ./rlm/weights:/app/rlm/weights
+      - ./weights:/app/weights
+      - ./hf_cache:/root/.cache/huggingface
+
+    environment:
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/weights/final_rlm_lora
+      - HF_HOME=/root/.cache/huggingface
+
+    working_dir: /app
+    command: ["python3", "api/app.py"]
+
+  bash-rlm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reasoning-tool-llm-agent-v2
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    volumes:
+      - ./rlm/weights:/app/rlm/weights
+      - ./weights:/app/weights
+      - ./hf_cache:/root/.cache/huggingface
+
+    environment:
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/weights/final_rlm_lora
+      - HF_HOME=/root/.cache/huggingface
+
+    working_dir: /app
+    command: ["bash"]
