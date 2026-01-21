@@ -1,52 +1,70 @@
 import re
+import os
 
 import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from datasets import load_dataset
+from tqdm import tqdm # type: ignore
 
-from typing import List
-
-# Configuración
+# Configuration
 MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
-SFT_ADAPTER_PATH = "./weights/sft_lora"  # Ruta al modelo de la Fase 1, Parte 1
-OUTPUT_DIR = "./weights/final_rlm_lora"
-GRPO_GROUP_SIZE = 4  # N respuestas por pregunta
+SFT_ADAPTER_PATH = os.environ.get("SFT_MODEL_PATH", "./weights/sft_lora")
+OUTPUT_DIR = os.environ.get("FINAL_MODEL_PATH", "./weights/final_rlm_lora")
+GRPO_GROUP_SIZE = 4
 DATASET_NAME = "gsm8k"
+
+# HYPERPARAMETERS
+EPOCHS: int = 1
+BATCH_SIZE: int = 16
+GROUP_SIZE: int = GRPO_GROUP_SIZE
+LR: float = 1e-5
+MAX_NEW_TOKENS: int = 64
 
 # pre-compile re matcher
 answer_regex = re.compile(r'La respuesta es ([\d\.]+)')
+think_first_regex = re.compile(r'<think>')
+think_last_regex = re.compile(r'</think>')
+think_content_regex = re.compile(r'<think>(.*)</think>', re.DOTALL)
 
 
 def reward_function(generated_text: str, ground_truth_answer) -> float:
-    """Extrae una respuesta numérica simple y compara con la respuesta real.
+    """Extract the final answer from the generated text and compare to ground truth.
 
-    Devuelve 1.0 si es exactamente igual, 0.0 en otro caso. Se puede mejorar.
+    Reward is 0.7 if the final answer matches the ground truth, plus extra rewards for
+    including the "think" tags and content.
     """
+    reward = 0.0
     match = answer_regex.search(generated_text)
     if match:
-        generated_answer = match.group(1)
-        if generated_answer == str(ground_truth_answer):
-            return 1.0
-    return 0.0
+        extracted = float(match.group(1))
+        try:
+            gt_value = float(ground_truth_answer)
+            if extracted == gt_value:
+                reward += 0.7
+        except (ValueError, TypeError):
+            reward += 0.0
+    
+    if think_first_regex.search(generated_text):
+        reward += 0.1
+    if think_last_regex.search(generated_text):
+        reward += 0.1
+    if think_content_regex.search(generated_text):
+        reward += 0.1
+
+    return reward
 
 
 def _build_prompt(question: str) -> str:
     return f"User: {question}\nAssistant: "
 
 
-def train_grpo(
-    epochs: int = 1,
-    batch_size: int = 2,
-    group_size: int = GRPO_GROUP_SIZE,
-    lr: float = 1e-5,
-    max_new_tokens: int = 64,
-):
+def train_grpo():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 1. Cargar modelo base y aplicarle el adaptador SFT
-    base_model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
+    # 1. Load model and tokenizer with LoRA adapter
+    base_model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, dtype=torch.float16)
     model = PeftModel.from_pretrained(base_model, SFT_ADAPTER_PATH, is_trainable=True)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -55,21 +73,20 @@ def train_grpo(
     model = model.to(device)
     model.train()
 
-    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
+    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=LR)
 
-    # 2. Cargar dataset y preparar iteración simple
-    dataset = load_dataset(DATASET_NAME, split="train")
+    # 2. Load dataset and prepare simple iteration
+    dataset = load_dataset(DATASET_NAME, name="main", split="train")
     examples = [
         {"question": ex["question"], "answer": ex.get("answer", "")} for ex in dataset
     ]
 
     n_examples = len(examples)
 
-    for epoch in range(epochs):
-        print(f"Epoch {epoch+1}/{epochs} — examples {n_examples}")
+    for epoch in range(EPOCHS):
 
-        for start in range(0, n_examples, batch_size):
-            batch = examples[start : start + batch_size]
+        for start in tqdm(range(0, n_examples, BATCH_SIZE), desc=f"Epoch {epoch+1}/{EPOCHS}"):
+            batch = examples[start : start + BATCH_SIZE]
 
             # For each question in batch generate `group_size` responses
             all_generated_ids = []
@@ -78,16 +95,20 @@ def train_grpo(
 
             for ex in batch:
                 prompt = _build_prompt(ex["question"])
-                input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+
+                enc = tokenizer(prompt, return_tensors="pt", padding=False)
+                input_ids = enc.input_ids.to(device)
+                attention_mask = enc.attention_mask.to(device)
 
                 with torch.no_grad():
                     gen_ids = model.generate(
                         input_ids=input_ids,
+                        attention_mask=attention_mask,
                         do_sample=True,
                         temperature=1.0,
                         top_p=0.95,
-                        max_new_tokens=max_new_tokens,
-                        num_return_sequences=group_size,
+                        max_new_tokens=MAX_NEW_TOKENS,
+                        num_return_sequences=GROUP_SIZE,
                         pad_token_id=tokenizer.eos_token_id,
                     )
 
@@ -116,8 +137,11 @@ def train_grpo(
                 input_ids = gen_ids[:-1].unsqueeze(0)
                 target_ids = gen_ids[1:].unsqueeze(0)
 
+                attention_mask = (input_ids != tokenizer.pad_token_id).long()
+
                 outputs = model.base_model(
                     input_ids=input_ids,
+                    attention_mask=attention_mask,
                     return_dict=True,
                 )
                 logits = outputs.logits  # (1, seq_len, vocab)
@@ -135,7 +159,7 @@ def train_grpo(
             advantages = []
             idx = 0
             for _ in batch:
-                group_rewards = rewards[idx : idx + group_size]
+                group_rewards = rewards[idx : idx + GROUP_SIZE]
                 mean_r = group_rewards.mean()
                 std_r = group_rewards.std()
                 if std_r == 0:
@@ -143,7 +167,7 @@ def train_grpo(
                 else:
                     adv = (group_rewards - mean_r) / (std_r + 1e-8)
                 advantages.append(adv)
-                idx += group_size
+                idx += GROUP_SIZE
 
             advantages = torch.cat(advantages).to(device)
 

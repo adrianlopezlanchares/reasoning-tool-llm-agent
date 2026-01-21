@@ -1,9 +1,11 @@
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 # Ruta a tu modelo final de fase 1
-MODEL_PATH = "./weights/final_rlm_lora"
+MODEL_PATH = os.environ.get("FINAL_MODEL_PATH", "./weights/final_rlm_lora")
 BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
 def load_rlm_model():

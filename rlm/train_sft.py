@@ -1,113 +1,109 @@
 import os
-import warnings
 
-os.environ["HF_HOME"] = "/root/.cache/huggingface"
-warnings.filterwarnings(
-    "ignore", category=FutureWarning, module="transformers.utils.hub"
-)
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+from peft import LoraConfig, TaskType
+from trl import SFTTrainer
 
-import torch  # noqa: E402
-from datasets import load_dataset  # noqa: E402
-from peft import LoraConfig  # noqa: E402
-from transformers import (  # noqa: E402
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    TrainingArguments,
-)
-from trl import SFTConfig, SFTTrainer  # noqa: E402
+# Configuration
+MODEL_NAME: str = "Qwen/Qwen2.5-7B-Instruct"
+DATASET_NAME: str = "gsm8k"
+OUTPUT_DIR: str = os.environ.get("SFT_MODEL_PATH", "./weights/sft_lora")
 
-# TODO: Configuración del modelo y dataset
-MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"  # O un modelo más pequeño si es necesario
-DATASET_NAME = "gsm8k"
-OUTPUT_DIR = "./weights/sft_lora"
+# HYPERPARAMETERS
+EPOCHS: int = 5
+BATCH_SIZE: int = 8
+LR: float = 2e-4
+LORA_RANK: int = 8
+LORA_ALPHA: int = 16
 
+# def get_freest_gpu():
+#     try:        
+#         # Run nvidia-smi to get memory usage
+#         result = subprocess.check_output(["nvidia-smi", "--query-gpu=memory.free,index", "--format=csv,nounits,noheader"],encoding="utf-8")        
+#         # Parse output: "12345, 0" -> (12345 MB, GPU 0)        
+#         gpu_memory = []
+#         for line in result.strip().split('\n'): 
+#             free_mem, index = line.split(',') 
+#             gpu_memory.append((int(free_mem), int(index)))
+#         # Sort by free memory (descending)        
+#         gpu_memory.sort(key=lambda x: x[0], reverse=True)        
+#         best_gpu_index = gpu_memory[0][1] 
+#         best_gpu_mem = gpu_memory[0][0] 
+#         print(f"✅ Auto-selected GPU {best_gpu_index} with {best_gpu_mem}MB free.") 
+#         return str(best_gpu_index) 
+#     except Exception as e: 
+#         print(f"⚠️ Could not detect GPUs automatically: {e}") 
+#         return "0" # Fallback
+    
 
-def formatting_prompts_func(examples):
-    output_texts = []
-    # Iterate over the batch
-    for question, answer in zip(examples["question"], examples["answer"]):
-        # Extract reasoning if available
-        if "####" in answer:
-            parts = answer.split("####")
-            reasoning = parts[0].strip()
-            final_answer = parts[1].strip()
-        else:
-            reasoning = answer
-            final_answer = "Error parsing"
+# os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
+# print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
 
-        # Construct the prompt
-        text = (
-            f"<|im_start|>user\n{question}<|im_end|>\n"
-            f"<|im_start|>assistant\n<think>\n{reasoning}\n</think>\n"
-            f"La respuesta es {final_answer}<|im_end|>"
-        )
-        output_texts.append(text)
+def formatting_prompts_func(example: dict) -> str:
+    question = example["question"]
+    answer_full = example["answer"]
 
-    return {"text": output_texts}
+    if "####" in answer_full:
+        reasoning, final_answer = answer_full.split("####", 1)
+        reasoning = reasoning.strip()
+        final_answer = final_answer.strip()
+    else:
+        reasoning = answer_full.strip()
+        final_answer = ""
+
+    text = (
+        f"User: {question}\n"
+        f"Assistant: <think>\n{reasoning}\n</think>\n"
+        f"La respuesta es {final_answer}"
+    )
+    return text
 
 
 def train():
-    # 1. Cargar Modelo y Tokenizer (usar cuantización 4bit/8bit si es necesario)
+    # 1. Load Model and Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map={"": 0}, dtype=torch.bfloat16)
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16,
-        bnb_4bit_quant_type="nf4",
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        quantization_config=bnb_config,
-        device_map="auto",
-        torch_dtype=torch.float16,
-    )
-
-    # 2. Configurar LoRA
+    # 2. Configure LoRA
     peft_config = LoraConfig(
-        r=8,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
-        lora_dropout=0.1,
+        task_type=TaskType.CAUSAL_LM,
+        r=LORA_RANK,
+        lora_alpha=LORA_ALPHA,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.01,
         bias="none",
-        task_type="CAUSAL_LM",
-        use_rslora=True,
     )
 
-    # 3. Cargar Dataset
-    dataset = load_dataset(DATASET_NAME, "main", split="train")
+    # 3. Load Dataset
+    dataset = load_dataset(DATASET_NAME, name="main", split="train")
 
-    print("Formatting dataset...")
-    dataset = dataset.map(formatting_prompts_func, batched=True)
-
-    sft_config = SFTConfig(
+    # 4. Configure Training
+    training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,
-        # dataset_text_field="text",
-        # max_seq_length=1024,
-        num_train_epochs=1,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        learning_rate=2e-4,
+        num_train_epochs=EPOCHS,
+        per_device_train_batch_size=BATCH_SIZE,
+        gradient_accumulation_steps=2,
+        learning_rate=LR,
         fp16=True,
-        logging_steps=10,
-        save_steps=100,
-        save_total_limit=2,
-        report_to="none",
+        logging_steps=100,
     )
 
+    # 5. Initialize SFTTrainer
     trainer = SFTTrainer(
         model=model,
         train_dataset=dataset,
         peft_config=peft_config,
-        processing_class=tokenizer,  # Use 'processing_class' for trl >= 0.13.0
-        args=sft_config,  # Pass the SFTConfig object
+        args=training_args,
+        formatting_func=formatting_prompts_func,
+        processing_class=tokenizer,
     )
 
-    # 6. Entrenar y guardar
+    # 6. Train and save
     trainer.train()
     trainer.save_model(OUTPUT_DIR)
-    print("SFT Training finished (TODO: Implement)")
-
+    print("SFT Training finished")
 
 if __name__ == "__main__":
     train()
