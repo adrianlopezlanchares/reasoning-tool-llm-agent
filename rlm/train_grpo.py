@@ -16,7 +16,7 @@ GRPO_GROUP_SIZE = 4
 DATASET_NAME = "gsm8k"
 
 # HYPERPARAMETERS
-EPOCHS: int = 1
+EPOCHS: int = 5
 BATCH_SIZE: int = 16
 GROUP_SIZE: int = GRPO_GROUP_SIZE
 LR: float = 1e-5
@@ -85,6 +85,7 @@ def train_grpo():
 
     for epoch in range(EPOCHS):
 
+        print(f"Total epochs: {EPOCHS}")
         for start in tqdm(range(0, n_examples, BATCH_SIZE), desc=f"Epoch {epoch+1}/{EPOCHS}"):
             batch = examples[start : start + BATCH_SIZE]
 
