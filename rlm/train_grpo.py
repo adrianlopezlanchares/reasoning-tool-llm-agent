@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -16,7 +17,7 @@ GRPO_GROUP_SIZE = 4
 DATASET_NAME = "gsm8k"
 
 # HYPERPARAMETERS
-EPOCHS: int = 5
+EPOCHS: int = 10
 BATCH_SIZE: int = 16
 GROUP_SIZE: int = GRPO_GROUP_SIZE
 LR: float = 1e-5
@@ -85,8 +86,7 @@ def train_grpo():
 
     for epoch in range(EPOCHS):
 
-        print(f"Total epochs: {EPOCHS}")
-        for start in tqdm(range(0, n_examples, BATCH_SIZE), desc=f"Epoch {epoch+1}/{EPOCHS}"):
+        for start in tqdm(range(0, n_examples, BATCH_SIZE), desc=f"Epoch {epoch+1}/{EPOCHS}", file=sys.stdout):
             batch = examples[start : start + BATCH_SIZE]
 
             # For each question in batch generate `group_size` responses
