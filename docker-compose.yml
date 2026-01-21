@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: reasoning-tool-llm-agent-v2
+    image: reasoning-tool-llm-agent
 
     deploy:
       resources:
@@ -28,7 +28,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: reasoning-tool-llm-agent-v2
+    image: reasoning-tool-llm-agent
     deploy:
       resources:
         reservations:
@@ -51,7 +51,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: reasoning-tool-llm-agent-v2
+    image: reasoning-tool-llm-agent
     ports:
       - "8002:8000"
 
@@ -80,7 +80,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: reasoning-tool-llm-agent-v2
+    image: reasoning-tool-llm-agent
 
     deploy:
       resources:
