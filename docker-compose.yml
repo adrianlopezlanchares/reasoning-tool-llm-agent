@@ -1,5 +1,6 @@
 services:
   train-sft:
+    container_name: train-sft
     build:
       context: .
       dockerfile: Dockerfile
@@ -26,6 +27,7 @@ services:
     command: ["python3", "rlm/train_sft.py"]
 
   train-grpo:
+    container_name: train-grpo
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,18 +46,19 @@ services:
       - ./hf_cache:/root/.cache/huggingface
     environment:
       - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
-      - FINAL_MODEL_PATH=/app/weights/final_rlm_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
     working_dir: /app
     command: ["python3", "rlm/train_grpo.py"]
 
   inference-rlm:
+    container_name: inference-rlm
     build:
       context: .
       dockerfile: Dockerfile
     image: reasoning-tool-llm-agent
     ports:
-      - "8002:8000"
+      - "8009:8000"
 
     deploy:
       resources:
@@ -73,13 +76,14 @@ services:
 
     environment:
       - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
-      - FINAL_MODEL_PATH=/app/weights/final_rlm_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
 
     working_dir: /app
     command: ["python3", "api/app.py"]
 
   bash-rlm:
+    container_name: bash-rlm
     build:
       context: .
       dockerfile: Dockerfile
@@ -101,7 +105,7 @@ services:
 
     environment:
       - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
-      - FINAL_MODEL_PATH=/app/weights/final_rlm_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
 
     working_dir: /app

@@ -1,30 +1,59 @@
 import re
 import os
 import sys
+import subprocess
 
 import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 from datasets import load_dataset
-from tqdm import tqdm # type: ignore
+from tqdm_loggable.auto import tqdm
+
+# To make tqdm work in docker logs
+import logging
+logging.basicConfig(level=logging.INFO)
 
 # Configuration
 MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 SFT_ADAPTER_PATH = os.environ.get("SFT_MODEL_PATH", "./weights/sft_lora")
 OUTPUT_DIR = os.environ.get("FINAL_MODEL_PATH", "./weights/final_rlm_lora")
-GRPO_GROUP_SIZE = 4
 DATASET_NAME = "gsm8k"
 
 # HYPERPARAMETERS
 EPOCHS: int = 10
 BATCH_SIZE: int = 16
-GROUP_SIZE: int = GRPO_GROUP_SIZE
 LR: float = 1e-5
+GRPO_GROUP_SIZE = 4
 MAX_NEW_TOKENS: int = 64
 
+PRINT_EVERY = 256
+
+def get_freest_gpu():
+    try:        
+        # Run nvidia-smi to get memory usage
+        result = subprocess.check_output(["nvidia-smi", "--query-gpu=memory.free,index", "--format=csv,nounits,noheader"],encoding="utf-8")        
+        # Parse output: "12345, 0" -> (12345 MB, GPU 0)        
+        gpu_memory = []
+        for line in result.strip().split('\n'): 
+            free_mem, index = line.split(',') 
+            gpu_memory.append((int(free_mem), int(index)))
+        # Sort by free memory (descending)        
+        gpu_memory.sort(key=lambda x: x[0], reverse=True)        
+        best_gpu_index = gpu_memory[0][1] 
+        best_gpu_mem = gpu_memory[0][0] 
+        print(f"✅ Auto-selected GPU {best_gpu_index} with {best_gpu_mem}MB free.") 
+        return str(best_gpu_index) 
+    except Exception as e: 
+        print(f"⚠️ Could not detect GPUs automatically: {e}") 
+        return "0" # Fallback
+    
+
+os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
+print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
+
 # pre-compile re matcher
-answer_regex = re.compile(r'La respuesta es ([\d\.]+)')
+answer_regex = re.compile(r'La respuesta es (\d+(?:\.\d+)?)')
 think_first_regex = re.compile(r'<think>')
 think_last_regex = re.compile(r'</think>')
 think_content_regex = re.compile(r'<think>(.*)</think>', re.DOTALL)
@@ -86,7 +115,7 @@ def train_grpo():
 
     for epoch in range(EPOCHS):
 
-        for start in tqdm(range(0, n_examples, BATCH_SIZE), desc=f"Epoch {epoch+1}/{EPOCHS}", file=sys.stdout):
+        for start in tqdm(range(0, n_examples, BATCH_SIZE), desc=f"Epoch {epoch+1}/{EPOCHS}"):
             batch = examples[start : start + BATCH_SIZE]
 
             # For each question in batch generate `group_size` responses
@@ -109,7 +138,7 @@ def train_grpo():
                         temperature=1.0,
                         top_p=0.95,
                         max_new_tokens=MAX_NEW_TOKENS,
-                        num_return_sequences=GROUP_SIZE,
+                        num_return_sequences=GRPO_GROUP_SIZE,
                         pad_token_id=tokenizer.eos_token_id,
                     )
 
@@ -160,7 +189,7 @@ def train_grpo():
             advantages = []
             idx = 0
             for _ in batch:
-                group_rewards = rewards[idx : idx + GROUP_SIZE]
+                group_rewards = rewards[idx : idx + GRPO_GROUP_SIZE]
                 mean_r = group_rewards.mean()
                 std_r = group_rewards.std()
                 if std_r == 0:
@@ -168,7 +197,7 @@ def train_grpo():
                 else:
                     adv = (group_rewards - mean_r) / (std_r + 1e-8)
                 advantages.append(adv)
-                idx += GROUP_SIZE
+                idx += GRPO_GROUP_SIZE
 
             advantages = torch.cat(advantages).to(device)
 
