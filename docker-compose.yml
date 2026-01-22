@@ -16,7 +16,6 @@ services:
 
     volumes:
       - .:/app
-      - ./rlm/weights:/app/rlm/weights
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
@@ -41,13 +40,13 @@ services:
               capabilities: [gpu]
     volumes:
       - .:/app
-      - ./rlm/weights:/app/rlm/weights
-      - ./weights:/app/weights
       - ./hf_cache:/root/.cache/huggingface
+
     environment:
       - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
       - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
+      
     working_dir: /app
     command: ["python3", "rlm/train_grpo.py"]
 
@@ -70,8 +69,6 @@ services:
 
     volumes:
       - .:/app
-      - ./rlm/weights:/app/rlm/weights
-      - ./weights:/app/weights
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
@@ -99,8 +96,6 @@ services:
 
     volumes:
       - .:/app
-      - ./rlm/weights:/app/rlm/weights
-      - ./weights:/app/weights
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
