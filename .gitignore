@@ -1,3 +1,4 @@
 .cache/
 weights/
 hf_cache/
+__pycache__/
