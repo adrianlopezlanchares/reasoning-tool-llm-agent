@@ -21,11 +21,11 @@ OUTPUT_DIR = os.environ.get("FINAL_MODEL_PATH", "./weights/final_rlm_lora")
 DATASET_NAME = "gsm8k"
 
 # HYPERPARAMETERS
-EPOCHS: int = 10
-BATCH_SIZE: int = 16
-LR: float = 1e-5
+EPOCHS: int = 3
+BATCH_SIZE: int = 8
+LR: float = 5e-6
 GRPO_GROUP_SIZE = 4
-MAX_NEW_TOKENS: int = 64
+MAX_NEW_TOKENS: int = 96
 
 PRINT_EVERY = 256
 
@@ -53,7 +53,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
 print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
 
 # pre-compile re matcher
-answer_regex = re.compile(r'La respuesta es (\d+(?:\.\d+)?)')
+answer_regex = re.compile(r'Response: (\d+(?:\.\d+)?)')
 think_first_regex = re.compile(r'<think>')
 think_last_regex = re.compile(r'</think>')
 think_content_regex = re.compile(r'<think>(.*)</think>', re.DOTALL)
@@ -135,7 +135,7 @@ def train_grpo():
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         do_sample=True,
-                        temperature=1.0,
+                        temperature=0.8,
                         top_p=0.95,
                         max_new_tokens=MAX_NEW_TOKENS,
                         num_return_sequences=GRPO_GROUP_SIZE,

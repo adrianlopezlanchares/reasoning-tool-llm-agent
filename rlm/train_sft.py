@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 import torch
 from datasets import load_dataset
@@ -12,34 +13,34 @@ DATASET_NAME: str = "gsm8k"
 OUTPUT_DIR: str = os.environ.get("SFT_MODEL_PATH", "./weights/sft_lora")
 
 # HYPERPARAMETERS
-EPOCHS: int = 5
+EPOCHS: int = 3
 BATCH_SIZE: int = 8
-LR: float = 2e-4
+LR: float = 5e-6
 LORA_RANK: int = 8
 LORA_ALPHA: int = 16
 
-# def get_freest_gpu():
-#     try:        
-#         # Run nvidia-smi to get memory usage
-#         result = subprocess.check_output(["nvidia-smi", "--query-gpu=memory.free,index", "--format=csv,nounits,noheader"],encoding="utf-8")        
-#         # Parse output: "12345, 0" -> (12345 MB, GPU 0)        
-#         gpu_memory = []
-#         for line in result.strip().split('\n'): 
-#             free_mem, index = line.split(',') 
-#             gpu_memory.append((int(free_mem), int(index)))
-#         # Sort by free memory (descending)        
-#         gpu_memory.sort(key=lambda x: x[0], reverse=True)        
-#         best_gpu_index = gpu_memory[0][1] 
-#         best_gpu_mem = gpu_memory[0][0] 
-#         print(f"✅ Auto-selected GPU {best_gpu_index} with {best_gpu_mem}MB free.") 
-#         return str(best_gpu_index) 
-#     except Exception as e: 
-#         print(f"⚠️ Could not detect GPUs automatically: {e}") 
-#         return "0" # Fallback
+def get_freest_gpu():
+    try:        
+        # Run nvidia-smi to get memory usage
+        result = subprocess.check_output(["nvidia-smi", "--query-gpu=memory.free,index", "--format=csv,nounits,noheader"],encoding="utf-8")        
+        # Parse output: "12345, 0" -> (12345 MB, GPU 0)        
+        gpu_memory = []
+        for line in result.strip().split('\n'): 
+            free_mem, index = line.split(',') 
+            gpu_memory.append((int(free_mem), int(index)))
+        # Sort by free memory (descending)        
+        gpu_memory.sort(key=lambda x: x[0], reverse=True)        
+        best_gpu_index = gpu_memory[0][1] 
+        best_gpu_mem = gpu_memory[0][0] 
+        print(f"✅ Auto-selected GPU {best_gpu_index} with {best_gpu_mem}MB free.") 
+        return str(best_gpu_index) 
+    except Exception as e: 
+        print(f"⚠️ Could not detect GPUs automatically: {e}") 
+        return "0" # Fallback
     
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
-# print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
+os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
+print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
 
 def formatting_prompts_func(example: dict) -> str:
     question = example["question"]
@@ -56,7 +57,7 @@ def formatting_prompts_func(example: dict) -> str:
     text = (
         f"User: {question}\n"
         f"Assistant: <think>\n{reasoning}\n</think>\n"
-        f"La respuesta es {final_answer}"
+        f"Response: {final_answer}"
     )
     return text
 
