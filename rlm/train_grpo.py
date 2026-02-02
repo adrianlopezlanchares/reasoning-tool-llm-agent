@@ -10,6 +10,8 @@ from peft import PeftModel
 from datasets import load_dataset
 from tqdm_loggable.auto import tqdm
 
+from rlm.system_prompt import SYSTEM_PROMPT
+
 # To make tqdm work in docker logs
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -21,11 +23,11 @@ OUTPUT_DIR = os.environ.get("FINAL_MODEL_PATH", "./weights/final_rlm_lora")
 DATASET_NAME = "gsm8k"
 
 # HYPERPARAMETERS
-EPOCHS: int = 3
+EPOCHS: int = 2
 BATCH_SIZE: int = 8
 LR: float = 5e-6
 GRPO_GROUP_SIZE = 4
-MAX_NEW_TOKENS: int = 96
+MAX_NEW_TOKENS: int = 256
 
 PRINT_EVERY = 256
 
@@ -86,8 +88,12 @@ def reward_function(generated_text: str, ground_truth_answer) -> float:
     return reward
 
 
-def _build_prompt(question: str) -> str:
-    return f"User: {question}\nAssistant: "
+def _build_prompt(question: str, tokenizer: AutoTokenizer) -> str:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
+    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
 def train_grpo():
@@ -124,7 +130,7 @@ def train_grpo():
             all_ground_truths = []
 
             for ex in batch:
-                prompt = _build_prompt(ex["question"])
+                prompt = _build_prompt(ex["question"], tokenizer)
 
                 enc = tokenizer(prompt, return_tensors="pt", padding=False)
                 input_ids = enc.input_ids.to(device)

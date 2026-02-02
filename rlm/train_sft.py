@@ -7,13 +7,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from peft import LoraConfig, TaskType
 from trl import SFTTrainer
 
+from rlm.system_prompt import SYSTEM_PROMPT
+
 # Configuration
 MODEL_NAME: str = "Qwen/Qwen2.5-7B-Instruct"
 DATASET_NAME: str = "gsm8k"
 OUTPUT_DIR: str = os.environ.get("SFT_MODEL_PATH", "./weights/sft_lora")
 
 # HYPERPARAMETERS
-EPOCHS: int = 3
+EPOCHS: int = 2
 BATCH_SIZE: int = 8
 LR: float = 5e-6
 LORA_RANK: int = 8
@@ -42,7 +44,7 @@ def get_freest_gpu():
 os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
 print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
 
-def formatting_prompts_func(example: dict) -> str:
+def formatting_prompts_func(example: dict, tokenizer: AutoTokenizer) -> str:
     question = example["question"]
     answer_full = example["answer"]
 
@@ -54,12 +56,12 @@ def formatting_prompts_func(example: dict) -> str:
         reasoning = answer_full.strip()
         final_answer = ""
 
-    text = (
-        f"Prompt: {question}\n"
-        f"Assistant: <think>\n{reasoning}\n</think>\n"
-        f"Response: {final_answer}"
-    )
-    return text
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": f"<think>\n{reasoning}\n</think>\n<answer>\n{final_answer}\n</answer>"},
+    ]
+    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
 
 
 def train():
@@ -97,7 +99,7 @@ def train():
         train_dataset=dataset,
         peft_config=peft_config,
         args=training_args,
-        formatting_func=formatting_prompts_func,
+        formatting_func=lambda ex: formatting_prompts_func(ex, tokenizer),
         processing_class=tokenizer,
     )
 
