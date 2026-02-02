@@ -22,9 +22,11 @@ def generate_reasoning(prompt, model, tokenizer):
     """
     # TODO: Implementar la generación
     input_ids = tokenizer(prompt, return_tensors="pt").to(model.device)
-    outputs = model.generate(**input_ids, max_new_tokens=512)
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response
+    outputs = model.generate(**input_ids, max_new_tokens=256, eos_token_id=tokenizer.eos_token_id)
+    input_len = input_ids["input_ids"].shape[1]
+    generated = outputs[0][input_len:]
+
+    return tokenizer.decode(generated, skip_special_tokens=True)
 
 if __name__ == "__main__":
     # Prueba local
