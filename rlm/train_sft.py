@@ -55,7 +55,7 @@ def formatting_prompts_func(example: dict) -> str:
         final_answer = ""
 
     text = (
-        f"User: {question}\n"
+        f"Prompt: {question}\n"
         f"Assistant: <think>\n{reasoning}\n</think>\n"
         f"Response: {final_answer}"
     )

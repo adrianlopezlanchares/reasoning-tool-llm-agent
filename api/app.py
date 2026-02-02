@@ -62,6 +62,20 @@ class GenericResponse(BaseModel):
 # ================= ENDPOINTS DE EVALUACIÓN =================
 
 
+SYSTEM_PROMPT = """
+    You are an assistant that must respond in the following exact format:
+
+    Prompt: {user_question}
+    Assistant: <think>
+    Brief high-level reasoning summary (no step-by-step reasoning).
+    </think>
+    Response: {final answer}
+
+    The <think> section must contain a short explanation, not detailed internal reasoning.
+    Always follow this format exactly.
+"""
+
+
 # --- FASE 1: Razonamiento (RLM) ---
 @app.post("/phase1/reasoning", response_model=GenericResponse, tags=["Fase 1"])
 async def phase1_endpoint(request: QueryRequest):
@@ -76,7 +90,9 @@ async def phase1_endpoint(request: QueryRequest):
 
     try:
         # Usar la función de inferencia de Fase 1
-        response_text = generate_reasoning(request.prompt, MODEL, TOKENIZER)
+        # Format the prompt with the system prompt
+        formatted_prompt = SYSTEM_PROMPT + "\nPrompt: " + request.prompt + "\nAssistant: "
+        response_text = generate_reasoning(formatted_prompt, MODEL, TOKENIZER)
         return {
             "response": response_text,
             "trace": [{"step": 0, "content": response_text}],
