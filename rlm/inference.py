@@ -26,7 +26,10 @@ def generate_reasoning(prompt, model, tokenizer):
     input_len = input_ids["input_ids"].shape[1]
     generated = outputs[0][input_len:]
 
-    return tokenizer.decode(generated, skip_special_tokens=True)
+    text = tokenizer.decode(generated, skip_special_tokens=True)
+    text = text.split("\nHuman:", 1)[0]
+
+    return text
 
 if __name__ == "__main__":
     # Prueba local
