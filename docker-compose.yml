@@ -19,7 +19,7 @@ services:
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
       - HF_HOME=/root/.cache/huggingface
 
     working_dir: /app
@@ -43,8 +43,8 @@ services:
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
-      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
       
     working_dir: /app
@@ -72,8 +72,8 @@ services:
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
-      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
 
     working_dir: /app
@@ -99,8 +99,8 @@ services:
       - ./hf_cache:/root/.cache/huggingface
 
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
-      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
 
     working_dir: /app
