@@ -1,6 +1,6 @@
 import re
 import json
-from tools import calculator, simulated_search
+from tool_use.tools import calculator, simulated_search
 
 def parse_and_execute_tool_call(model_output):
     """
