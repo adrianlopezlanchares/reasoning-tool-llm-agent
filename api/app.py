@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 import uvicorn
@@ -11,8 +12,40 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # --- IMPORTACIONES DE LOS MÓDULOS DE LOS ALUMNOS ---
 # TODO: Descomentar a medida que se implementen las fases
 from rlm.inference import generate_reasoning, load_rlm_model
+from tool_use.inference import generate_with_tools
+from tool_use.tool_handler import parse_and_execute_tool_call
 
-# from tool_use.tool_handler import parse_and_execute_tool_call
+
+def get_freest_gpu():
+    try:
+        # Run nvidia-smi to get memory usage
+        result = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.free,index",
+                "--format=csv,nounits,noheader",
+            ],
+            encoding="utf-8",
+        )
+        # Parse output: "12345, 0" -> (12345 MB, GPU 0)
+        gpu_memory = []
+        for line in result.strip().split("\n"):
+            free_mem, index = line.split(",")
+            gpu_memory.append((int(free_mem), int(index)))
+        # Sort by free memory (descending)
+        gpu_memory.sort(key=lambda x: x[0], reverse=True)
+        best_gpu_index = gpu_memory[0][1]
+        best_gpu_mem = gpu_memory[0][0]
+        print(f"✅ Auto-selected GPU {best_gpu_index} with {best_gpu_mem}MB free.")
+        return str(best_gpu_index)
+    except Exception as e:
+        print(f"⚠️ Could not detect GPUs automatically: {e}")
+        return "0"  # Fallback
+
+
+os.environ["CUDA_VISIBLE_DEVICES"] = get_freest_gpu()
+print(f"Using GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
+
 # from rag.rag_engine import retrieve_context, format_rag_prompt
 # from react.agent import ReActAgent
 
@@ -61,6 +94,7 @@ class GenericResponse(BaseModel):
 
 # ================= ENDPOINTS DE EVALUACIÓN =================
 
+
 # --- FASE 1: Razonamiento (RLM) ---
 @app.post("/phase1/reasoning", response_model=GenericResponse, tags=["Fase 1"])
 async def phase1_endpoint(request: QueryRequest):
@@ -96,24 +130,32 @@ async def phase2_endpoint(request: QueryRequest):
     Evalúa la capacidad de llamar herramientas.
     Si el prompt requiere una herramienta, debe devolver la ejecución simulada.
     """
-    # 1. Simular generación del modelo (o usar el real si ya sabe usar tools)
-    # model_output_simulated = '''... Thought: Necesito la calculadora. Action: '''
-
-    # 2. Usar el handler de Fase 2
-    # TODO: Descomentar
-    # tool_result = parse_and_execute_tool_call(model_output_simulated)
-
-    tool_result = "Placeholder: Resultado de herramienta (Fase 2) no implementado."
-
-    if tool_result:
+    if not MODEL or not TOKENIZER:
         return {
-            "response": f"Tool execution result: {tool_result}",
-            "details": {"tool_called": True},
+            "response": "ERROR: Modelo de Fase 2 no cargado.",
+            "details": {"status": "model_not_loaded"},
         }
-    else:
+
+    try:
+        # Use the multi-turn tool-use inference loop
+        result = generate_with_tools(request.prompt, MODEL, TOKENIZER)
+
+        print(f"Tool-use response: {result['response']}")
+        print(f"Trace: {result['trace']}")
+
+        # Check if any tools were called by looking at the trace
+        tool_called = any(step.get("role") == "tool" for step in result["trace"])
+
         return {
-            "response": "No tool call detected or needed.",
-            "details": {"tool_called": False},
+            "response": result["response"],
+            "trace": result["trace"],
+            "details": {"tool_called": tool_called, "status": "success"},
+        }
+    except Exception as e:
+        return {
+            "response": f"ERROR during tool-use generation: {str(e)}",
+            "trace": [],
+            "details": {"status": "error", "error": str(e)},
         }
 
 

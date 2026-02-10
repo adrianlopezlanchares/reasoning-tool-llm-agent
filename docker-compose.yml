@@ -1,11 +1,10 @@
 services:
-  train-sft:
-    container_name: train-sft
+  train-sft-sergi:
+    container_name: train-sft-sergi
     build:
       context: .
       dockerfile: Dockerfile
     image: reasoning-tool-llm-agent
-
     deploy:
       resources:
         reservations:
@@ -13,20 +12,17 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-
     volumes:
       - .:/app
       - ./hf_cache:/root/.cache/huggingface
-
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
       - HF_HOME=/root/.cache/huggingface
-
     working_dir: /app
     command: ["python3", "rlm/train_sft.py"]
 
-  train-grpo:
-    container_name: train-grpo
+  train-grpo-sergi:
+    container_name: train-grpo-sergi
     build:
       context: .
       dockerfile: Dockerfile
@@ -41,24 +37,21 @@ services:
     volumes:
       - .:/app
       - ./hf_cache:/root/.cache/huggingface
-
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
-      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
-      
     working_dir: /app
     command: ["python3", "rlm/train_grpo.py"]
 
-  inference-rlm:
-    container_name: inference-rlm
+  inference-rlm-sergi:
+    container_name: inference-rlm-sergi
     build:
       context: .
       dockerfile: Dockerfile
     image: reasoning-tool-llm-agent
     ports:
       - "8009:8000"
-
     deploy:
       resources:
         reservations:
@@ -66,26 +59,24 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-
     volumes:
       - .:/app
       - ./hf_cache:/root/.cache/huggingface
-
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
-      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
-
     working_dir: /app
     command: ["python3", "api/app.py"]
 
-  bash-rlm:
-    container_name: bash-rlm
+  bash-rlm-sergi:
+    container_name: bash-rlm-sergi
     build:
       context: .
       dockerfile: Dockerfile
     image: reasoning-tool-llm-agent
-
+    stdin_open: true
+    tty: true
     deploy:
       resources:
         reservations:
@@ -93,15 +84,12 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-
     volumes:
       - .:/app
       - ./hf_cache:/root/.cache/huggingface
-
     environment:
-      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora_v2
-      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora_v2
+      - SFT_MODEL_PATH=/app/rlm/weights/sft_lora
+      - FINAL_MODEL_PATH=/app/rlm/weights/final_rlm_lora
       - HF_HOME=/root/.cache/huggingface
-
     working_dir: /app
     command: ["bash"]
