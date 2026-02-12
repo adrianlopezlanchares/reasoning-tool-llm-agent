@@ -1,6 +1,6 @@
 services:
-  train-sft-sergi:
-    container_name: train-sft-sergi
+  train-sft-adri:
+    container_name: train-sft-adri
     build:
       context: .
       dockerfile: Dockerfile
@@ -21,8 +21,8 @@ services:
     working_dir: /app
     command: ["python3", "rlm/train_sft.py"]
 
-  train-grpo-sergi:
-    container_name: train-grpo-sergi
+  train-grpo-adri:
+    container_name: train-grpo-adri
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,8 +44,8 @@ services:
     working_dir: /app
     command: ["python3", "rlm/train_grpo.py"]
 
-  inference-rlm-sergi:
-    container_name: inference-rlm-sergi
+  inference-rlm-adri:
+    container_name: inference-rlm-adri
     build:
       context: .
       dockerfile: Dockerfile
@@ -69,8 +69,8 @@ services:
     working_dir: /app
     command: ["python3", "api/app.py"]
 
-  bash-rlm-sergi:
-    container_name: bash-rlm-sergi
+  bash-rlm-adri:
+    container_name: bash-rlm-adri
     build:
       context: .
       dockerfile: Dockerfile

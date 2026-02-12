@@ -4,9 +4,9 @@ from collections.abc import Callable
 from typing import Any
 
 import requests
+import numexpr
 
 # --- Tool 1: Cockcroft-Gault Creatinine Clearance Calculator ---
-
 
 def calculate_creatinine_cockcroft(
     age: int,
@@ -95,11 +95,29 @@ def fda_drug_search(drug_name: str) -> dict[str, Any]:
     }
 
 
+# --- Tool 3: Math operations ---
+
+def math_operation(operation: str) -> dict[str, Any]:
+    """Tool to perform math operations and calculations
+
+    Args:
+        operation: A string containing a valid mathematical expression.
+
+    Returns:
+        dict[str, Any]: Result of the calculation or error message.
+    """
+    try:
+        result = numexpr.evaluate(operation).item()
+        return {"result": result}
+    except Exception as exc:
+        return {"error": f"Math operation failed: {exc}"}
+
 # --- Registry ---
 
 AVAILABLE_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "calculate_creatinine_cockcroft": calculate_creatinine_cockcroft,
     "fda_drug_search": fda_drug_search,
+    "math_operation": math_operation,
 }
 
 # --- JSON Schemas for Qwen2.5 apply_chat_template(tools=...) ---
@@ -157,6 +175,25 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["drug_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "math_operation",
+            "description": (
+                "Perform a mathematical operation given as a string expression."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "A string containing a valid mathematical expression.",
+                    },
+                },
+                "required": ["operation"],
             },
         },
     },
