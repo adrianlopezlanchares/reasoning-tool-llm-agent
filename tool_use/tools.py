@@ -1,74 +1,163 @@
-# --- Implementación de las herramientas ---
+"""Phase 2 tool definitions: Cockcroft-Gault calculator and OpenFDA drug search."""
 
-import os
+from collections.abc import Callable
+from typing import Any
 
-import numexpr
-from dotenv import load_dotenv
-from langchain.tools import tool
+import requests
 
-from rlm.inference import load_rlm_model, generate_reasoning
+# --- Tool 1: Cockcroft-Gault Creatinine Clearance Calculator ---
 
-load_dotenv()
 
-MODEL_PATH = os.environ.get("FINAL_MODEL_PATH", "./weights/final_rlm_lora")
-BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+def calculate_creatinine_cockcroft(
+    age: int,
+    weight_kg: float,
+    scr: float,
+    sex: str,
+) -> dict[str, Any]:
+    """Calculate creatinine clearance (CrCl) using the Cockcroft-Gault equation.
 
-@tool
-def calculator(expression: str) -> str:
-    """Evalúa una expresión matemática simple. Útil para realizar cálculos aritméticos."""
+    Args:
+        age: Patient age in years.
+        weight_kg: Patient weight in kilograms.
+        scr: Serum creatinine in mg/dL.
+        sex: Patient biological sex, 'male' or 'female'.
+
+    Returns:
+        Dict with 'creatinine_clearance_ml_min' and 'unit', or 'error' on failure.
+    """
+    sex_lower = str(sex).strip().lower()
+    if sex_lower not in ("male", "female"):
+        return {"error": f"Invalid sex '{sex}'. Must be 'male' or 'female'."}
+    if float(scr) <= 0:
+        return {"error": f"Serum creatinine must be positive, got {scr}."}
+    if int(age) <= 0 or float(weight_kg) <= 0:
+        return {"error": "Age and weight must be positive values."}
+
+    age_i, weight_f, scr_f = int(age), float(weight_kg), float(scr)
+    crcl = ((140 - age_i) * weight_f) / (72 * scr_f)
+    if sex_lower == "female":
+        crcl *= 0.85
+
+    return {"creatinine_clearance_ml_min": round(crcl, 2), "unit": "mL/min"}
+
+
+# --- Tool 2: OpenFDA Drug Search ---
+
+_FDA_BASE_URL = "https://api.fda.gov/drug/label.json"
+_FDA_TIMEOUT = 10
+
+
+def fda_drug_search(drug_name: str) -> dict[str, Any]:
+    """Search the OpenFDA API for drug labeling information.
+
+    Args:
+        drug_name: Brand or generic drug name to search.
+
+    Returns:
+        Dict with brand_name, generic_name, indications_and_usage, warnings,
+        and dosage_and_administration fields, or 'error' on failure.
+    """
+    drug_name = str(drug_name).strip()
+    if not drug_name:
+        return {"error": "Drug name must not be empty."}
+
     try:
-        return str(numexpr.evaluate(expression))
-    except Exception as e:
-        return f"Error calculando: {e}"
+        resp = requests.get(
+            _FDA_BASE_URL,
+            params={"search": f'openfda.brand_name:"{drug_name}"', "limit": 1},
+            timeout=_FDA_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        return {"error": f"FDA API request timed out for '{drug_name}'."}
+    except requests.exceptions.RequestException as exc:
+        return {"error": f"FDA API request failed: {exc}"}
+
+    data = resp.json()
+    results = data.get("results")
+    if not results:
+        return {"error": f"No FDA results found for '{drug_name}'."}
+
+    record = results[0]
+    openfda = record.get("openfda", {})
+
+    def _first(field: str, max_len: int = 500) -> str:
+        val = record.get(field, [])
+        text = val[0] if val else "Not available"
+        return text[:max_len]
+
+    return {
+        "brand_name": ", ".join(openfda.get("brand_name", ["Not available"])),
+        "generic_name": ", ".join(openfda.get("generic_name", ["Not available"])),
+        "indications_and_usage": _first("indications_and_usage"),
+        "warnings": _first("warnings"),
+        "dosage_and_administration": _first("dosage_and_administration"),
+    }
 
 
-@tool
-def simulated_search(query: str) -> str:
-    """Busca información en una base de datos. SIEMPRE usa esta herramienta para buscar información sobre personas, lugares, tecnología o cualquier dato factual. Input: la consulta de búsqueda."""
-    query_lower = query.lower()
-    if "hermano" in query_lower and "miguel" in query_lower:
-        return "Miguel tiene un hermano llamado Juan."
-    elif "capital" in query_lower and "francia" in query_lower:
-        return "La capital de Francia es París."
-    elif "python" in query_lower:
-        return "Python es un lenguaje de programación de alto nivel."
-    else:
-        return "No se encontraron resultados relevantes en el buscador simulado."
+# --- Registry ---
 
+AVAILABLE_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "calculate_creatinine_cockcroft": calculate_creatinine_cockcroft,
+    "fda_drug_search": fda_drug_search,
+}
 
-# Lista de herramientas disponibles
-tools = [calculator, simulated_search]
+# --- JSON Schemas for Qwen2.5 apply_chat_template(tools=...) ---
 
-
-SYSTEM_PROMPT = """Eres un asistente que SIEMPRE usa las herramientas disponibles para responder preguntas.
-
-REGLAS IMPORTANTES:
-1. Para CUALQUIER pregunta sobre personas, lugares, datos o hechos, USA la herramienta simulated_search PRIMERO.
-2. Para cálculos matemáticos, USA la herramienta calculator.
-3. NUNCA respondas basándote en tu conocimiento propio sin antes consultar las herramientas.
-4. Si una herramienta no devuelve resultados, entonces puedes indicar que no encontraste la información."""
-
-
-def main():
-    """Ejemplo de uso de un agente con herramientas usando LangChain y Azure OpenAI."""
-    
-    model, tokenizer = load_rlm_model()
-    
-    # # Ejemplo 1: Pregunta que requiere cálculo
-    print("=" * 60)
-    print("Ejemplo 1: Cálculo matemático")
-    print("=" * 60)
-    result = generate_reasoning("¿Cuánto es 25 * 4 + 100?", model, tokenizer)
-    print(f"Respuesta: {result['messages'][-1].content}\n")
-    
-    # Ejemplo 2: Pregunta que requiere búsqueda
-    print("=" * 60)
-    print("Ejemplo 2: Búsqueda de información")
-    print("=" * 60)
-    result = generate_reasoning("¿Quién es el hermano de Miguel?", model, tokenizer)
-    print(f"Respuesta: {result['messages'][-1].content}\n")
-    
-
-
-if __name__ == "__main__":
-    main()
+TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_creatinine_cockcroft",
+            "description": (
+                "Calculate estimated creatinine clearance (kidney function) "
+                "using the Cockcroft-Gault equation. Use this for questions about "
+                "GFR, kidney function, or creatinine clearance."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "age": {
+                        "type": "integer",
+                        "description": "Patient age in years",
+                    },
+                    "weight_kg": {
+                        "type": "number",
+                        "description": "Patient weight in kilograms",
+                    },
+                    "scr": {
+                        "type": "number",
+                        "description": "Serum creatinine level in mg/dL",
+                    },
+                    "sex": {
+                        "type": "string",
+                        "enum": ["male", "female"],
+                        "description": "Patient biological sex",
+                    },
+                },
+                "required": ["age", "weight_kg", "scr", "sex"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fda_drug_search",
+            "description": (
+                "Search the OpenFDA database for drug labeling information "
+                "including indications, warnings, and dosage. Use this for "
+                "questions about medications, drug side effects, or drug interactions."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "drug_name": {
+                        "type": "string",
+                        "description": "The brand or generic name of the drug",
+                    },
+                },
+                "required": ["drug_name"],
+            },
+        },
+    },
+]
